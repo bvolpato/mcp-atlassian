@@ -335,7 +335,7 @@ class TestRealConfluenceValidation:
         assert page.space is not None
         assert page.space.key is not None
 
-        assert page.content_format in ["storage", "view", "markdown"]
+        assert page.content_format in ["storage", "view"]
 
     def test_get_page_comments(self, use_real_confluence_data, test_page_id):
         """Test that page comments are properly converted to ConfluenceComment models."""

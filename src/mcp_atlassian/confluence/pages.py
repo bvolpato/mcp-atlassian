@@ -30,16 +30,12 @@ class PagesMixin(ConfluenceClient):
             )
         return None
 
-    def get_page_content(
-        self, page_id: str, *, convert_to_markdown: bool = True
-    ) -> ConfluencePage:
+    def get_page_content(self, page_id: str) -> ConfluencePage:
         """
         Get content of a specific page.
 
         Args:
             page_id: The ID of the page to retrieve
-            convert_to_markdown: When True, returns content in markdown format,
-                               otherwise returns raw HTML (keyword-only)
 
         Returns:
             ConfluencePage model containing the page content and metadata
@@ -81,12 +77,10 @@ class PagesMixin(ConfluenceClient):
                     f"Page {page.get('id', 'unknown')} missing body.storage.value: {e}"
                 )
                 content = ""
-            processed_html, processed_markdown = self.preprocessor.process_html_content(
+            # Process HTML content for cleaning/normalization
+            processed_html, _ = self.preprocessor.process_html_content(
                 content, space_key=space_key, confluence_client=self.confluence
             )
-
-            # Use the appropriate content format based on the convert_to_markdown flag
-            page_content = processed_markdown if convert_to_markdown else processed_html
 
             # Fetch page emoji from content properties
             emoji = self._get_page_emoji(page_id)
@@ -97,8 +91,8 @@ class PagesMixin(ConfluenceClient):
                 base_url=self.config.url,
                 include_body=True,
                 # Override content with our processed version
-                content_override=page_content,
-                content_format="storage" if not convert_to_markdown else "markdown",
+                content_override=processed_html,
+                content_format="storage",
                 is_cloud=self.config.is_cloud,
                 emoji=emoji,
             )
@@ -289,17 +283,13 @@ class PagesMixin(ConfluenceClient):
             logger.warning(f"Error setting emoji for page {page_id}: {str(e)}")
             return False
 
-    def get_page_by_title(
-        self, space_key: str, title: str, *, convert_to_markdown: bool = True
-    ) -> ConfluencePage | None:
+    def get_page_by_title(self, space_key: str, title: str) -> ConfluencePage | None:
         """
         Get a specific page by its title from a Confluence space.
 
         Args:
             space_key: The key of the space containing the page
             title: The title of the page to retrieve
-            convert_to_markdown: When True, returns content in markdown format,
-                               otherwise returns raw HTML (keyword-only)
 
         Returns:
             ConfluencePage model containing the page content and metadata, or None if not found
@@ -324,12 +314,10 @@ class PagesMixin(ConfluenceClient):
                     f"Page {page.get('id', 'unknown')} missing body.storage.value: {e}"
                 )
                 content = ""
-            processed_html, processed_markdown = self.preprocessor.process_html_content(
+            # Process HTML content for cleaning/normalization
+            processed_html, _ = self.preprocessor.process_html_content(
                 content, space_key=space_key, confluence_client=self.confluence
             )
-
-            # Use the appropriate content format based on the convert_to_markdown flag
-            page_content = processed_markdown if convert_to_markdown else processed_html
 
             # Fetch page emoji from content properties
             emoji = self._get_page_emoji(str(page.get("id", "")))
@@ -340,8 +328,8 @@ class PagesMixin(ConfluenceClient):
                 base_url=self.config.url,
                 include_body=True,
                 # Override content with our processed version
-                content_override=page_content,
-                content_format="storage" if not convert_to_markdown else "markdown",
+                content_override=processed_html,
+                content_format="storage",
                 is_cloud=self.config.is_cloud,
                 emoji=emoji,
             )
@@ -366,8 +354,6 @@ class PagesMixin(ConfluenceClient):
         space_key: str,
         start: int = 0,
         limit: int = 10,
-        *,
-        convert_to_markdown: bool = True,
     ) -> list[ConfluencePage]:
         """
         Get all pages from a specific space.
@@ -376,8 +362,6 @@ class PagesMixin(ConfluenceClient):
             space_key: The key of the space to get pages from
             start: The starting index for pagination
             limit: Maximum number of pages to return
-            convert_to_markdown: When True, returns content in markdown format,
-                               otherwise returns raw HTML (keyword-only)
 
         Returns:
             List of ConfluencePage models containing page content and metadata
@@ -395,12 +379,10 @@ class PagesMixin(ConfluenceClient):
                     f"Page {page.get('id', 'unknown')} missing body.storage.value: {e}"
                 )
                 content = ""
-            processed_html, processed_markdown = self.preprocessor.process_html_content(
+            # Process HTML content for cleaning/normalization
+            processed_html, _ = self.preprocessor.process_html_content(
                 content, space_key=space_key, confluence_client=self.confluence
             )
-
-            # Use the appropriate content format based on the convert_to_markdown flag
-            page_content = processed_markdown if convert_to_markdown else processed_html
 
             # Ensure space information is included
             if "space" not in page:
@@ -415,8 +397,8 @@ class PagesMixin(ConfluenceClient):
                 base_url=self.config.url,
                 include_body=True,
                 # Override content with our processed version
-                content_override=page_content,
-                content_format="storage" if not convert_to_markdown else "markdown",
+                content_override=processed_html,
+                content_format="storage",
                 is_cloud=self.config.is_cloud,
             )
 
@@ -431,9 +413,6 @@ class PagesMixin(ConfluenceClient):
         body: str,
         parent_id: str | None = None,
         *,
-        is_markdown: bool = True,
-        enable_heading_anchors: bool = False,
-        content_representation: str | None = None,
         emoji: str | None = None,
     ) -> ConfluencePage:
         """
@@ -442,11 +421,8 @@ class PagesMixin(ConfluenceClient):
         Args:
             space_key: The key of the space to create the page in
             title: The title of the new page
-            body: The content of the page (markdown, wiki markup, or storage format)
+            body: The content of the page in Confluence storage format (XHTML)
             parent_id: Optional ID of a parent page
-            is_markdown: Whether the body content is in markdown format (default: True, keyword-only)
-            enable_heading_anchors: Whether to enable automatic heading anchor generation (default: False, keyword-only)
-            content_representation: Content format when is_markdown=False ('wiki' or 'storage', keyword-only)
             emoji: Optional emoji character for the page title icon (keyword-only)
 
         Returns:
@@ -456,18 +432,6 @@ class PagesMixin(ConfluenceClient):
             Exception: If there is an error creating the page
         """
         try:
-            # Determine body and representation based on content type
-            if is_markdown:
-                # Convert markdown to Confluence storage format
-                final_body = self.preprocessor.markdown_to_confluence_storage(
-                    body, enable_heading_anchors=enable_heading_anchors
-                )
-                representation = "storage"
-            else:
-                # Use body as-is with specified representation
-                final_body = body
-                representation = content_representation or "storage"
-
             # Use v2 API for OAuth authentication, v1 API for token/basic auth
             v2_adapter = self._v2_adapter
             if v2_adapter:
@@ -477,9 +441,9 @@ class PagesMixin(ConfluenceClient):
                 result = v2_adapter.create_page(
                     space_key=space_key,
                     title=title,
-                    body=final_body,
+                    body=body,
                     parent_id=parent_id,
-                    representation=representation,
+                    representation="storage",
                 )
             else:
                 logger.debug(
@@ -488,9 +452,9 @@ class PagesMixin(ConfluenceClient):
                 result = self.confluence.create_page(
                     space=space_key,
                     title=title,
-                    body=final_body,
+                    body=body,
                     parent_id=parent_id,
-                    representation=representation,
+                    representation="storage",
                 )
 
             # Get the new page content
@@ -519,10 +483,7 @@ class PagesMixin(ConfluenceClient):
         *,
         is_minor_edit: bool = False,
         version_comment: str = "",
-        is_markdown: bool = True,
         parent_id: str | None = None,
-        enable_heading_anchors: bool = False,
-        content_representation: str | None = None,
         emoji: str | None = None,
     ) -> ConfluencePage:
         """
@@ -531,13 +492,10 @@ class PagesMixin(ConfluenceClient):
         Args:
             page_id: The ID of the page to update
             title: The new title of the page
-            body: The new content of the page (markdown, wiki markup, or storage format)
+            body: The new content of the page in Confluence storage format (XHTML)
             is_minor_edit: Whether this is a minor edit (keyword-only)
             version_comment: Optional comment for this version (keyword-only)
-            is_markdown: Whether the body content is in markdown format (default: True, keyword-only)
             parent_id: Optional new parent page ID (keyword-only)
-            enable_heading_anchors: Whether to enable automatic heading anchor generation (default: False, keyword-only)
-            content_representation: Content format when is_markdown=False ('wiki' or 'storage', keyword-only)
             emoji: Optional emoji character for the page title icon (keyword-only). Pass empty string to remove emoji.
 
         Returns:
@@ -547,18 +505,6 @@ class PagesMixin(ConfluenceClient):
             Exception: If there is an error updating the page
         """
         try:
-            # Determine body and representation based on content type
-            if is_markdown:
-                # Convert markdown to Confluence storage format
-                final_body = self.preprocessor.markdown_to_confluence_storage(
-                    body, enable_heading_anchors=enable_heading_anchors
-                )
-                representation = "storage"
-            else:
-                # Use body as-is with specified representation
-                final_body = body
-                representation = content_representation or "storage"
-
             logger.debug(f"Updating page {page_id} with title '{title}'")
 
             # Use v2 API for OAuth authentication, v1 API for token/basic auth
@@ -567,11 +513,11 @@ class PagesMixin(ConfluenceClient):
                 logger.debug(
                     f"Using v2 API for OAuth authentication to update page '{page_id}'"
                 )
-                response = v2_adapter.update_page(
+                v2_adapter.update_page(
                     page_id=page_id,
                     title=title,
-                    body=final_body,
-                    representation=representation,
+                    body=body,
+                    representation="storage",
                     version_comment=version_comment,
                 )
             else:
@@ -581,9 +527,9 @@ class PagesMixin(ConfluenceClient):
                 update_kwargs = {
                     "page_id": page_id,
                     "title": title,
-                    "body": final_body,
+                    "body": body,
                     "type": "page",
-                    "representation": representation,
+                    "representation": "storage",
                     "minor_edit": is_minor_edit,
                     "version_comment": version_comment,
                     "always_update": True,
@@ -612,7 +558,6 @@ class PagesMixin(ConfluenceClient):
         limit: int = 25,
         expand: str = "version",
         *,
-        convert_to_markdown: bool = True,
         include_folders: bool = True,
     ) -> list[ConfluencePage]:
         """
@@ -623,8 +568,6 @@ class PagesMixin(ConfluenceClient):
             start: The starting index for pagination
             limit: Maximum number of child items to return
             expand: Fields to expand in the response
-            convert_to_markdown: When True, returns content in markdown format,
-                               otherwise returns raw HTML (keyword-only)
             include_folders: When True, also returns child folders (keyword-only)
 
         Returns:
@@ -681,15 +624,15 @@ class PagesMixin(ConfluenceClient):
             for item in child_items:
                 # Only process content if we have "body" expanded
                 content_override = None
-                if "body" in item and convert_to_markdown:
+                if "body" in item:
                     content = item.get("body", {}).get("storage", {}).get("value", "")
                     if content:
-                        _, processed_markdown = self.preprocessor.process_html_content(
+                        processed_html, _ = self.preprocessor.process_html_content(
                             content,
                             space_key=space_key,
                             confluence_client=self.confluence,
                         )
-                        content_override = processed_markdown
+                        content_override = processed_html
 
                 # Create the page model (works for both pages and folders)
                 page_model = ConfluencePage.from_api_response(
@@ -697,7 +640,7 @@ class PagesMixin(ConfluenceClient):
                     base_url=self.config.url,
                     include_body=True,
                     content_override=content_override,
-                    content_format="markdown" if convert_to_markdown else "storage",
+                    content_format="storage",
                 )
 
                 page_models.append(page_model)

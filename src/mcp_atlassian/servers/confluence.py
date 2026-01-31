@@ -156,17 +156,6 @@ async def get_page(
             default=True,
         ),
     ] = True,
-    convert_to_markdown: Annotated[
-        bool,
-        Field(
-            description=(
-                "Whether to convert page to markdown (true) or keep it in raw HTML format (false). "
-                "Raw HTML can reveal macros (like dates) not visible in markdown, but CAUTION: "
-                "using HTML significantly increases token usage in AI responses."
-            ),
-            default=True,
-        ),
-    ] = True,
 ) -> str:
     """Get content of a specific Confluence page by its ID, or by its title and space key.
 
@@ -176,7 +165,6 @@ async def get_page(
         title: The exact title of the page. Must be used with 'space_key'.
         space_key: The key of the space. Must be used with 'title'.
         include_metadata: Whether to include page metadata.
-        convert_to_markdown: Convert content to markdown (true) or keep raw HTML (false).
 
     Returns:
         JSON string representing the page content and/or metadata, or an error if not found or parameters are invalid.
@@ -191,9 +179,7 @@ async def get_page(
             )
         try:
             page_id_str = str(page_id)
-            page_object = confluence_fetcher.get_page_content(
-                page_id_str, convert_to_markdown=convert_to_markdown
-            )
+            page_object = confluence_fetcher.get_page_content(page_id_str)
         except Exception as e:
             logger.error(f"Error fetching page by ID '{page_id}': {e}")
             return json.dumps(
@@ -202,9 +188,7 @@ async def get_page(
                 ensure_ascii=False,
             )
     elif title and space_key:
-        page_object = confluence_fetcher.get_page_by_title(
-            space_key, title, convert_to_markdown=convert_to_markdown
-        )
+        page_object = confluence_fetcher.get_page_by_title(space_key, title)
         if not page_object:
             return json.dumps(
                 {
@@ -268,13 +252,6 @@ async def get_page_children(
             default=False,
         ),
     ] = False,
-    convert_to_markdown: Annotated[
-        bool,
-        Field(
-            description="Whether to convert page content to markdown (true) or keep it in raw HTML format (false). Only relevant if include_content is true.",
-            default=True,
-        ),
-    ] = True,
     start: Annotated[
         int,
         Field(description="Starting index for pagination (0-based)", default=0, ge=0),
@@ -295,7 +272,6 @@ async def get_page_children(
         expand: Fields to expand.
         limit: Maximum number of child items.
         include_content: Whether to include page content.
-        convert_to_markdown: Convert content to markdown if include_content is true.
         start: Starting index for pagination.
         include_folders: Whether to include child folders (default: True).
 
@@ -312,7 +288,6 @@ async def get_page_children(
             start=start,
             limit=limit,
             expand=expand,
-            convert_to_markdown=convert_to_markdown,
             include_folders=include_folders,
         )
         child_pages = [page.to_simplified_dict() for page in pages]
@@ -443,7 +418,15 @@ async def create_page(
     content: Annotated[
         str,
         Field(
-            description="The content of the page. Format depends on content_format parameter. Can be Markdown (default), wiki markup, or storage format"
+            description=(
+                "The content of the page in Confluence storage format (XHTML-based). "
+                "Use standard HTML tags for formatting: <h1>, <h2>, <p>, <ul>, <li>, <strong>, <em>, <a href='url'>. "
+                "For code blocks, use the ac:structured-macro format: "
+                '<ac:structured-macro ac:name="code" ac:schema-version="1">'
+                '<ac:parameter ac:name="language">sql</ac:parameter>'
+                "<ac:plain-text-body><![CDATA[your code here]]></ac:plain-text-body>"
+                "</ac:structured-macro>"
+            )
         ),
     ],
     parent_id: Annotated[
@@ -454,20 +437,6 @@ async def create_page(
         ),
         BeforeValidator(lambda x: str(x) if x is not None else None),
     ] = None,
-    content_format: Annotated[
-        str,
-        Field(
-            description="(Optional) The format of the content parameter. Options: 'markdown' (default), 'wiki', or 'storage'. Wiki format uses Confluence wiki markup syntax",
-            default="markdown",
-        ),
-    ] = "markdown",
-    enable_heading_anchors: Annotated[
-        bool,
-        Field(
-            description="(Optional) Whether to enable automatic heading anchor generation. Only applies when content_format is 'markdown'",
-            default=False,
-        ),
-    ] = False,
     emoji: Annotated[
         str | None,
         Field(
@@ -482,44 +451,23 @@ async def create_page(
         ctx: The FastMCP context.
         space_key: The key of the space.
         title: The title of the page.
-        content: The content of the page (format depends on content_format).
+        content: The content of the page in Confluence storage format.
         parent_id: Optional parent page ID.
-        content_format: The format of the content ('markdown', 'wiki', or 'storage').
-        enable_heading_anchors: Whether to enable heading anchors (markdown only).
         emoji: Optional page title emoji (icon shown in navigation).
 
     Returns:
         JSON string representing the created page object.
 
     Raises:
-        ValueError: If in read-only mode, Confluence client is unavailable, or invalid content_format.
+        ValueError: If in read-only mode or Confluence client is unavailable.
     """
     confluence_fetcher = await get_confluence_fetcher(ctx)
-
-    # Validate content_format
-    if content_format not in ["markdown", "wiki", "storage"]:
-        raise ValueError(
-            f"Invalid content_format: {content_format}. Must be 'markdown', 'wiki', or 'storage'"
-        )
-
-    # Determine parameters based on content format
-    if content_format == "markdown":
-        is_markdown = True
-        content_representation = None  # Will be converted to storage
-    else:
-        is_markdown = False
-        content_representation = content_format  # Pass 'wiki' or 'storage' directly
 
     page = confluence_fetcher.create_page(
         space_key=space_key,
         title=title,
         body=content,
         parent_id=parent_id,
-        is_markdown=is_markdown,
-        enable_heading_anchors=enable_heading_anchors
-        if content_format == "markdown"
-        else False,
-        content_representation=content_representation,
         emoji=emoji,
     )
     result = page.to_simplified_dict()
@@ -542,7 +490,15 @@ async def update_page(
     content: Annotated[
         str,
         Field(
-            description="The new content of the page. Format depends on content_format parameter"
+            description=(
+                "The new content of the page in Confluence storage format (XHTML-based). "
+                "Use standard HTML tags for formatting: <h1>, <h2>, <p>, <ul>, <li>, <strong>, <em>, <a href='url'>. "
+                "For code blocks, use the ac:structured-macro format: "
+                '<ac:structured-macro ac:name="code" ac:schema-version="1">'
+                '<ac:parameter ac:name="language">sql</ac:parameter>'
+                "<ac:plain-text-body><![CDATA[your code here]]></ac:plain-text-body>"
+                "</ac:structured-macro>"
+            )
         ),
     ],
     is_minor_edit: Annotated[
@@ -556,20 +512,6 @@ async def update_page(
         Field(description="Optional the new parent page ID", default=None),
         BeforeValidator(lambda x: str(x) if x is not None else None),
     ] = None,
-    content_format: Annotated[
-        str,
-        Field(
-            description="(Optional) The format of the content parameter. Options: 'markdown' (default), 'wiki', or 'storage'. Wiki format uses Confluence wiki markup syntax",
-            default="markdown",
-        ),
-    ] = "markdown",
-    enable_heading_anchors: Annotated[
-        bool,
-        Field(
-            description="(Optional) Whether to enable automatic heading anchor generation. Only applies when content_format is 'markdown'",
-            default=False,
-        ),
-    ] = False,
     emoji: Annotated[
         str | None,
         Field(
@@ -584,35 +526,19 @@ async def update_page(
         ctx: The FastMCP context.
         page_id: The ID of the page to update.
         title: The new title of the page.
-        content: The new content of the page (format depends on content_format).
+        content: The new content of the page in Confluence storage format.
         is_minor_edit: Whether this is a minor edit.
         version_comment: Optional comment for this version.
         parent_id: Optional new parent page ID.
-        content_format: The format of the content ('markdown', 'wiki', or 'storage').
-        enable_heading_anchors: Whether to enable heading anchors (markdown only).
         emoji: Optional page title emoji (icon shown in navigation).
 
     Returns:
         JSON string representing the updated page object.
 
     Raises:
-        ValueError: If Confluence client is not configured, available, or invalid content_format.
+        ValueError: If Confluence client is not configured or unavailable.
     """
     confluence_fetcher = await get_confluence_fetcher(ctx)
-
-    # Validate content_format
-    if content_format not in ["markdown", "wiki", "storage"]:
-        raise ValueError(
-            f"Invalid content_format: {content_format}. Must be 'markdown', 'wiki', or 'storage'"
-        )
-
-    # Determine parameters based on content format
-    if content_format == "markdown":
-        is_markdown = True
-        content_representation = None  # Will be converted to storage
-    else:
-        is_markdown = False
-        content_representation = content_format  # Pass 'wiki' or 'storage' directly
 
     updated_page = confluence_fetcher.update_page(
         page_id=page_id,
@@ -620,12 +546,7 @@ async def update_page(
         body=content,
         is_minor_edit=is_minor_edit,
         version_comment=version_comment,
-        is_markdown=is_markdown,
         parent_id=parent_id,
-        enable_heading_anchors=enable_heading_anchors
-        if content_format == "markdown"
-        else False,
-        content_representation=content_representation,
         emoji=emoji,
     )
     page_data = updated_page.to_simplified_dict()

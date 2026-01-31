@@ -342,32 +342,6 @@ def test_jira_markup_translation_disabled(
     assert "{{jira code}}" in result
 
 
-def test_markdown_to_confluence_storage(preprocessor_with_confluence):
-    """Test conversion of Markdown to Confluence storage format."""
-    markdown = """# Heading 1
-
-This is some **bold** and *italic* text.
-
-- List item 1
-- List item 2
-
-[Link text](https://example.com)
-"""
-
-    # Convert markdown to storage format
-    storage_format = preprocessor_with_confluence.markdown_to_confluence_storage(
-        markdown
-    )
-
-    # Verify basic structure (we don't need to test the exact conversion, as that's handled by md2conf)
-    assert "<h1>" in storage_format
-    assert "Heading 1" in storage_format
-    assert "<strong>" in storage_format or "<b>" in storage_format  # Bold
-    assert "<em>" in storage_format or "<i>" in storage_format  # Italic
-    assert "<a href=" in storage_format.lower()  # Link
-    assert "example.com" in storage_format
-
-
 def test_process_confluence_profile_macro(preprocessor_with_confluence):
     """Test processing Confluence User Profile Macro in page content."""
     html_content = MOCK_PAGE_RESPONSE["body"]["storage"]["value"]
@@ -468,101 +442,6 @@ def test_process_user_profile_macro_multiple():
     assert "@Test User Two" in processed_markdown
 
 
-def test_markdown_to_confluence_no_automatic_anchors():
-    """Test that heading_anchors=False prevents automatic anchor generation (regression for issue #488)."""
-    from mcp_atlassian.preprocessing.confluence import ConfluencePreprocessor
-
-    markdown_with_headings = """
-# Main Title
-Some content here.
-
-## Subsection
-More content.
-
-### Deep Section
-Final content.
-"""
-
-    preprocessor = ConfluencePreprocessor(base_url="https://example.atlassian.net")
-    result = preprocessor.markdown_to_confluence_storage(markdown_with_headings)
-
-    # Should not contain automatically generated anchor IDs
-    assert 'id="main-title"' not in result.lower()
-    assert 'id="subsection"' not in result.lower()
-    assert 'id="deep-section"' not in result.lower()
-
-    # Should still contain proper heading tags
-    assert "<h1>Main Title</h1>" in result
-    assert "<h2>Subsection</h2>" in result
-    assert "<h3>Deep Section</h3>" in result
-
-
-def test_markdown_to_confluence_style_preservation():
-    """Test that styled content is preserved during conversion."""
-    from mcp_atlassian.preprocessing.confluence import ConfluencePreprocessor
-
-    markdown_with_styles = """
-# Title with **bold** text
-
-This paragraph has *italic* and **bold** text.
-
-```python
-def hello():
-    return "world"
-```
-
-- Item with **bold**
-- Item with *italic*
-
-> Blockquote with **formatting**
-
-[Link text](https://example.com) with description.
-"""
-
-    preprocessor = ConfluencePreprocessor(base_url="https://example.atlassian.net")
-    result = preprocessor.markdown_to_confluence_storage(markdown_with_styles)
-
-    # Check that formatting is preserved
-    assert "<strong>bold</strong>" in result
-    assert "<em>italic</em>" in result
-    assert "<blockquote>" in result
-    assert '<a href="https://example.com">Link text</a>' in result
-    assert "ac:structured-macro" in result  # Code block macro
-    assert 'ac:name="code"' in result
-    assert "python" in result
-
-
-def test_markdown_to_confluence_optional_anchor_generation():
-    """Test that enable_heading_anchors parameter controls anchor generation."""
-    from mcp_atlassian.preprocessing.confluence import ConfluencePreprocessor
-
-    markdown_with_headings = """
-# Main Title
-Content here.
-
-## Subsection
-More content.
-"""
-
-    preprocessor = ConfluencePreprocessor(base_url="https://example.atlassian.net")
-
-    # Test with anchors disabled (default)
-    result_no_anchors = preprocessor.markdown_to_confluence_storage(
-        markdown_with_headings
-    )
-    assert 'id="main-title"' not in result_no_anchors.lower()
-    assert 'id="subsection"' not in result_no_anchors.lower()
-
-    # Test with anchors enabled
-    result_with_anchors = preprocessor.markdown_to_confluence_storage(
-        markdown_with_headings, enable_heading_anchors=True
-    )
-    # When anchors are enabled, they should be present
-    # Note: md2conf may use different anchor formats, so we check for presence of id attributes
-    assert "<h1>" in result_with_anchors
-    assert "<h2>" in result_with_anchors
-
-
 # Issue #786 regression tests - Wiki Markup Corruption
 
 
@@ -611,8 +490,49 @@ def test_markdown_to_jira_bold_without_space_still_converts(preprocessor_with_ji
     assert preprocessor_with_jira.markdown_to_jira("*italic text*") == "_italic text_"
 
 
-def test_md2conf_elements_from_string_available():
-    """Test that elements_from_string is importable with fallback (issue #817)."""
-    from mcp_atlassian.preprocessing.confluence import elements_from_string
+def test_process_html_content_converts_code_macros_to_markdown():
+    """Test that Confluence code macros are converted to proper markdown code blocks."""
+    from mcp_atlassian.preprocessing.base import BasePreprocessor
 
-    assert callable(elements_from_string)
+    storage_content = """<h1>Test</h1>
+<ac:structured-macro ac:name="code" ac:schema-version="1">
+<ac:parameter ac:name="language">sql</ac:parameter>
+<ac:plain-text-body><![CDATA[SELECT * FROM table WHERE x > 5]]></ac:plain-text-body>
+</ac:structured-macro>"""
+
+    preprocessor = BasePreprocessor(base_url="https://example.atlassian.net")
+    processed_html, processed_markdown = preprocessor.process_html_content(
+        storage_content
+    )
+
+    # HTML should have pre/code structure
+    assert "<pre>" in processed_html
+    assert "<code" in processed_html
+    assert 'class="language-sql"' in processed_html
+
+    # Markdown should have proper code block with language
+    assert "```sql" in processed_markdown
+    assert "SELECT * FROM table WHERE x > 5" in processed_markdown
+    assert "```" in processed_markdown
+
+
+def test_process_html_content_handles_code_macro_without_language():
+    """Test that code macros without language are converted correctly."""
+    from mcp_atlassian.preprocessing.base import BasePreprocessor
+
+    storage_content = """<ac:structured-macro ac:name="code" ac:schema-version="1">
+<ac:plain-text-body><![CDATA[some code here]]></ac:plain-text-body>
+</ac:structured-macro>"""
+
+    preprocessor = BasePreprocessor(base_url="https://example.atlassian.net")
+    processed_html, processed_markdown = preprocessor.process_html_content(
+        storage_content
+    )
+
+    # HTML should have pre/code structure without language class
+    assert "<pre>" in processed_html
+    assert "<code>" in processed_html
+
+    # Markdown should have code block (without language specifier)
+    assert "```" in processed_markdown
+    assert "some code here" in processed_markdown

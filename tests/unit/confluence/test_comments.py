@@ -56,36 +56,7 @@ class TestCommentsMixin:
             content_id=page_id, expand="body.view.value,version", depth="all"
         )
         assert len(result) == 1
-        assert result[0].body == "Processed Markdown"
-
-    def test_get_page_comments_with_html(self, comments_mixin):
-        """Test get_page_comments with HTML output instead of markdown."""
-        # Setup
-        page_id = "12345"
-        comments_mixin.confluence.get_page_comments.return_value = {
-            "results": [
-                {
-                    "id": "12345",
-                    "body": {"view": {"value": "<p>Comment content here</p>"}},
-                    "version": {"number": 1},
-                    "author": {"displayName": "John Doe"},
-                }
-            ]
-        }
-
-        # Mock the HTML processing
-        comments_mixin.preprocessor.process_html_content.return_value = (
-            "<p>Processed HTML</p>",
-            "Processed markdown",
-        )
-
-        # Call the method
-        result = comments_mixin.get_page_comments(page_id, return_markdown=False)
-
-        # Verify result
-        assert len(result) == 1
-        comment = result[0]
-        assert comment.body == "<p>Processed HTML</p>"
+        assert result[0].body == "<p>Processed HTML</p>"
 
     def test_get_page_comments_api_error(self, comments_mixin):
         """Test handling of API errors."""
@@ -141,17 +112,12 @@ class TestCommentsMixin:
         """Test adding a comment with success response."""
         # Setup
         page_id = "12345"
-        content = "This is a test comment"
+        content = "<p>This is a test comment</p>"
 
         # Mock the page retrieval
         comments_mixin.confluence.get_page_by_id.return_value = {
             "space": {"key": "TEST"}
         }
-
-        # Mock the preprocessor's conversion method
-        comments_mixin.preprocessor.markdown_to_confluence_storage.return_value = (
-            "<p>This is a test comment</p>"
-        )
 
         # Configure the mock to return a successful response
         comments_mixin.confluence.add_comment.return_value = {
@@ -176,10 +142,10 @@ class TestCommentsMixin:
         )
         assert result is not None
         assert result.id == "98765"
-        assert result.body == "This is a test comment"
+        assert result.body == "<p>This is a test comment</p>"
 
-    def test_add_comment_with_html_content(self, comments_mixin):
-        """Test adding a comment with HTML content."""
+    def test_add_comment_with_storage_content(self, comments_mixin):
+        """Test adding a comment with storage format content."""
         # Setup
         page_id = "12345"
         content = "<p>This is an <strong>HTML</strong> comment</p>"
@@ -208,27 +174,21 @@ class TestCommentsMixin:
         # Call the method
         result = comments_mixin.add_comment(page_id, content)
 
-        # Verify - should not call markdown conversion since content is already HTML
-        comments_mixin.preprocessor.markdown_to_confluence_storage.assert_not_called()
+        # Verify - storage format is used directly
         comments_mixin.confluence.add_comment.assert_called_once_with(page_id, content)
         assert result is not None
-        assert result.body == "This is an **HTML** comment"
+        assert result.body == "<p>This is an <strong>HTML</strong> comment</p>"
 
     def test_add_comment_api_error(self, comments_mixin):
         """Test handling of API errors when adding a comment."""
         # Setup
         page_id = "12345"
-        content = "This is a test comment"
+        content = "<p>This is a test comment</p>"
 
         # Mock the page retrieval
         comments_mixin.confluence.get_page_by_id.return_value = {
             "space": {"key": "TEST"}
         }
-
-        # Mock the preprocessor's conversion method
-        comments_mixin.preprocessor.markdown_to_confluence_storage.return_value = (
-            "<p>This is a test comment</p>"
-        )
 
         # Mock the API to raise an exception
         comments_mixin.confluence.add_comment.side_effect = requests.RequestException(
@@ -245,17 +205,12 @@ class TestCommentsMixin:
         """Test handling of empty API response when adding a comment."""
         # Setup
         page_id = "12345"
-        content = "This is a test comment"
+        content = "<p>This is a test comment</p>"
 
         # Mock the page retrieval
         comments_mixin.confluence.get_page_by_id.return_value = {
             "space": {"key": "TEST"}
         }
-
-        # Mock the preprocessor's conversion method
-        comments_mixin.preprocessor.markdown_to_confluence_storage.return_value = (
-            "<p>This is a test comment</p>"
-        )
 
         # Configure the mock to return an empty response
         comments_mixin.confluence.add_comment.return_value = None

@@ -15,6 +15,49 @@ def _has_code_mark(node: dict) -> bool:
     return any(m.get("type") == "code" for m in marks)
 
 
+def _is_code_only_paragraph(node: dict) -> bool:
+    """
+    Check if a node is a paragraph containing only code-marked text.
+
+    This includes paragraphs with code text and hardBreaks only.
+    """
+    if not isinstance(node, dict):
+        return False
+    if node.get("type") != "paragraph":
+        return False
+    content = node.get("content", [])
+    if not content:
+        return False
+    # Check if all content is either code-marked text or hardBreak
+    for item in content:
+        if not isinstance(item, dict):
+            return False
+        if item.get("type") == "hardBreak":
+            continue
+        if not _has_code_mark(item):
+            return False
+    return True
+
+
+def _extract_code_from_paragraph(node: dict) -> list[str]:
+    """
+    Extract code lines from a code-only paragraph.
+
+    Returns list of code lines (empty strings for hardBreaks).
+    """
+    lines: list[str] = []
+    content = node.get("content", [])
+    for item in content:
+        if isinstance(item, dict):
+            if item.get("type") == "hardBreak":
+                lines.append("")
+            elif _has_code_mark(item):
+                text = _get_text_without_code_mark(item)
+                # Split by newlines to handle multiline content within single node
+                lines.extend(text.split("\n"))
+    return lines
+
+
 def _get_text_without_code_mark(node: dict) -> str:
     """Get text from a node, applying all marks except code."""
     text = node.get("text", "")
@@ -76,6 +119,10 @@ def _process_content_list(items: list) -> str | None:
     Process a list of ADF content items, merging consecutive code-marked text
     into proper code blocks.
 
+    This handles both:
+    1. Consecutive code-marked text nodes within a single paragraph
+    2. Consecutive paragraphs that contain only code-marked text
+
     Args:
         items: List of ADF content items
 
@@ -100,15 +147,50 @@ def _process_content_list(items: list) -> str | None:
                 result_parts.append(f"```\n{code_content}\n```")
             code_buffer.clear()
 
-    for item in items:
+    # Look ahead to determine if hardBreak is between code nodes
+    def is_followed_by_code(index: int) -> bool:
+        """Check if there's a code-marked text node after this index."""
+        for j in range(index + 1, len(items)):
+            next_item = items[j]
+            if isinstance(next_item, dict):
+                if _has_code_mark(next_item):
+                    return True
+                # Skip hardBreaks when looking ahead
+                if next_item.get("type") == "hardBreak":
+                    continue
+                # Any other node type means no code follows
+                return False
+        return False
+
+    in_code_block = False
+
+    for i, item in enumerate(items):
+        # Check if this is a code-only paragraph (for document-level lists)
+        if isinstance(item, dict) and _is_code_only_paragraph(item):
+            code_lines = _extract_code_from_paragraph(item)
+            if code_lines:
+                in_code_block = True
+                code_buffer.extend(code_lines)
+            continue
+
         if isinstance(item, dict) and _has_code_mark(item):
             # This is a code-marked text node - accumulate it
+            in_code_block = True
             text = _get_text_without_code_mark(item)
             # Split by newlines to handle multiline content
             lines = text.split("\n")
             code_buffer.extend(lines)
+        elif (
+            isinstance(item, dict)
+            and item.get("type") == "hardBreak"
+            and in_code_block
+            and is_followed_by_code(i)
+        ):
+            # hardBreak between code nodes - add as newline in code
+            code_buffer.append("")
         else:
             # Not code-marked - flush any accumulated code first
+            in_code_block = False
             flush_code_buffer()
             # Process this item normally
             text = adf_to_text(item)

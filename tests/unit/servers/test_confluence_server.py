@@ -275,12 +275,11 @@ async def test_search(client, mock_confluence_fetcher):
 
 @pytest.mark.anyio
 async def test_get_page(client, mock_confluence_fetcher):
-    """Test the get_page tool with default parameters."""
+    """Test the get_page tool with default parameters (storage format)."""
     response = await client.call_tool("confluence_get_page", {"page_id": "123456"})
 
-    mock_confluence_fetcher.get_page_content.assert_called_once_with(
-        "123456", convert_to_markdown=True
-    )
+    # Storage format only - no convert_to_markdown parameter
+    mock_confluence_fetcher.get_page_content.assert_called_once_with("123456")
 
     result_data = json.loads(response.content[0].text)
     assert "metadata" in result_data
@@ -297,9 +296,8 @@ async def test_get_page_no_metadata(client, mock_confluence_fetcher):
         "confluence_get_page", {"page_id": "123456", "include_metadata": False}
     )
 
-    mock_confluence_fetcher.get_page_content.assert_called_once_with(
-        "123456", convert_to_markdown=True
-    )
+    # Storage format only - no convert_to_markdown parameter
+    mock_confluence_fetcher.get_page_content.assert_called_once_with("123456")
 
     result_data = json.loads(response.content[0].text)
     assert "metadata" not in result_data
@@ -308,34 +306,27 @@ async def test_get_page_no_metadata(client, mock_confluence_fetcher):
 
 
 @pytest.mark.anyio
-async def test_get_page_no_markdown(client, mock_confluence_fetcher):
-    """Test get_page with HTML content format."""
-    mock_page_html = MagicMock(spec=ConfluencePage)
-    mock_page_html.to_simplified_dict.return_value = {
+async def test_get_page_storage_format(client, mock_confluence_fetcher):
+    """Test get_page returns storage content format."""
+    mock_page_storage = MagicMock(spec=ConfluencePage)
+    mock_page_storage.to_simplified_dict.return_value = {
         "id": "123456",
-        "title": "Test Page HTML",
-        "url": "https://example.com/html",
-        "content": "<p>HTML Content</p>",
-        "content_format": "storage",
+        "title": "Test Page Storage",
+        "url": "https://example.com/storage",
+        "content": {"value": "<p>Storage Content</p>", "format": "storage"},
     }
-    mock_page_html.content = "<p>HTML Content</p>"
-    mock_page_html.content_format = "storage"
+    mock_page_storage.content = "<p>Storage Content</p>"
+    mock_page_storage.content_format = "storage"
 
-    mock_confluence_fetcher.get_page_content.return_value = mock_page_html
+    mock_confluence_fetcher.get_page_content.return_value = mock_page_storage
 
-    response = await client.call_tool(
-        "confluence_get_page", {"page_id": "123456", "convert_to_markdown": False}
-    )
+    response = await client.call_tool("confluence_get_page", {"page_id": "123456"})
 
-    mock_confluence_fetcher.get_page_content.assert_called_once_with(
-        "123456", convert_to_markdown=False
-    )
+    mock_confluence_fetcher.get_page_content.assert_called_once_with("123456")
 
     result_data = json.loads(response.content[0].text)
     assert "metadata" in result_data
-    assert result_data["metadata"]["title"] == "Test Page HTML"
-    assert result_data["metadata"]["content"] == "<p>HTML Content</p>"
-    assert result_data["metadata"]["content_format"] == "storage"
+    assert result_data["metadata"]["title"] == "Test Page Storage"
 
 
 @pytest.mark.anyio

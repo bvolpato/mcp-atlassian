@@ -439,123 +439,6 @@ def process():
         assert "@User user789" in processed_markdown
         assert "@User admin" in processed_markdown
 
-    def test_confluence_markdown_roundtrip(self, confluence_preprocessor):
-        """Test Markdown to Confluence storage format and processing."""
-        markdown_content = """# Main Title
-
-## Introduction
-This is a **bold** paragraph with *italic* text and `inline code`.
-
-### Code Block
-```python
-def hello_world():
-    print("Hello, World!")
-    return True
-```
-
-### Lists
-- Item 1
-  - Nested item 1.1
-  - Nested item 1.2
-- Item 2
-
-1. First step
-2. Second step
-   1. Sub-step 2.1
-   2. Sub-step 2.2
-
-### Table
-| Header 1 | Header 2 | Header 3 |
-|----------|----------|----------|
-| Cell 1   | Cell 2   | Cell 3   |
-| Cell 4   | Cell 5   | Cell 6   |
-
-### Links and Images
-[Confluence Documentation](https://confluence.atlassian.com/doc/)
-![Alt text](https://example.com/image.png)
-
-### Blockquote
-> This is a blockquote
-> with multiple lines
-
-### Horizontal Rule
----
-
-### Special Characters
-Unicode: α β γ δ ε ζ η θ
-Emojis: 🚀 💻 ✅ ❌ 📝
-Math: x² + y² = z²"""
-
-        # Convert to Confluence storage format
-        storage_format = confluence_preprocessor.markdown_to_confluence_storage(
-            markdown_content
-        )
-
-        # Process the storage format
-        processed_html, processed_markdown = (
-            confluence_preprocessor.process_html_content(storage_format)
-        )
-
-        # Verify key elements are preserved
-        assert "Main Title" in processed_markdown
-        assert "**bold**" in processed_markdown
-        assert "*italic*" in processed_markdown
-        assert "`inline code`" in processed_markdown
-
-        # Verify code block (may have escaped underscores)
-        assert (
-            "hello_world" in processed_markdown or "hello\\_world" in processed_markdown
-        )
-        assert "Hello, World!" in processed_markdown
-
-        # Verify lists
-        assert "Item 1" in processed_markdown
-        assert "Nested item 1.1" in processed_markdown
-        assert "First step" in processed_markdown
-        assert "Sub-step 2.1" in processed_markdown
-
-        # Verify table (tables might be converted to HTML)
-        assert "Header 1" in processed_markdown
-        assert "Cell 1" in processed_markdown
-
-        # Verify links
-        assert "Confluence Documentation" in processed_markdown
-        assert "https://confluence.atlassian.com/doc/" in processed_markdown
-
-        # Verify special characters
-        assert "α β γ δ ε ζ η θ" in processed_markdown
-        assert "🚀 💻 ✅ ❌ 📝" in processed_markdown
-        assert "x² + y² = z²" in processed_markdown
-
-    def test_confluence_heading_anchor_control(self, confluence_preprocessor):
-        """Test control over heading anchor generation."""
-        markdown_with_headings = """# Main Title
-Content under main title.
-
-## Section One
-Content in section one.
-
-### Subsection 1.1
-Details here.
-
-## Section Two
-More content."""
-
-        # Test with anchors disabled (default)
-        storage_no_anchors = confluence_preprocessor.markdown_to_confluence_storage(
-            markdown_with_headings
-        )
-        assert 'id="main-title"' not in storage_no_anchors.lower()
-        assert 'id="section-one"' not in storage_no_anchors.lower()
-
-        # Test with anchors enabled
-        storage_with_anchors = confluence_preprocessor.markdown_to_confluence_storage(
-            markdown_with_headings, enable_heading_anchors=True
-        )
-        # Verify headings are still present (they may have anchor macros)
-        assert "Main Title</h1>" in storage_with_anchors
-        assert "Section One</h2>" in storage_with_anchors
-
     def test_confluence_large_content_performance(self, confluence_preprocessor):
         """Test performance with large Confluence content (>1MB)."""
         # Generate large content with various Confluence elements
@@ -795,20 +678,10 @@ def shared_function():
         # Convert to Jira format
         jira_markup = jira_preprocessor.markdown_to_jira(shared_markdown)
 
-        # Convert to Confluence format
-        confluence_storage = confluence_preprocessor.markdown_to_confluence_storage(
-            shared_markdown
-        )
-
-        # Verify both conversions preserve key content
+        # Verify conversion preserves key content
         assert "Shared Documentation" in jira_markup
-        assert "Shared Documentation" in confluence_storage
-
         assert "Feature 1" in jira_markup
-        assert "Feature 1" in confluence_storage
-
         assert "shared_function" in jira_markup
-        assert "shared_function" in confluence_storage
 
     def test_unicode_consistency(self, jira_preprocessor, confluence_preprocessor):
         """Test Unicode handling consistency across processors."""

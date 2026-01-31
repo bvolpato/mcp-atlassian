@@ -60,9 +60,15 @@ class BasePreprocessor:
             self._process_user_mentions_in_soup(soup, confluence_client)
             self._process_user_profile_macros_in_soup(soup, confluence_client)
 
+            # Convert code macros to pre/code elements for proper markdown conversion
+            self._process_code_macros_in_soup(soup)
+
             # Convert to string and markdown
             processed_html = str(soup)
-            processed_markdown = md(processed_html)
+            processed_markdown = md(
+                processed_html,
+                code_language_callback=self._get_code_language_from_pre,
+            )
 
             return processed_html, processed_markdown
 
@@ -104,6 +110,74 @@ class BasePreprocessor:
                         self._replace_user_mention(
                             user_element, account_id, confluence_client
                         )
+
+    @staticmethod
+    def _get_code_language_from_pre(el: Tag) -> str:
+        """
+        Extract programming language from a <pre> element's <code> child.
+
+        Used as a callback for markdownify to preserve language info in code blocks.
+
+        Args:
+            el: The <pre> element
+
+        Returns:
+            The language identifier (e.g., 'sql', 'python') or empty string
+        """
+        code = el.find("code")
+        if code and isinstance(code, Tag):
+            classes = code.get("class", [])
+            if isinstance(classes, list):
+                for cls in classes:
+                    if cls.startswith("language-"):
+                        return cls.replace("language-", "")
+        return ""
+
+    def _process_code_macros_in_soup(self, soup: BeautifulSoup) -> None:
+        """
+        Convert Confluence code macros to pre/code elements for markdown conversion.
+
+        Transforms <ac:structured-macro ac:name="code">...</ac:structured-macro>
+        to <pre><code class="language-XXX">...</code></pre> so that markdownify
+        can properly convert them to markdown code blocks.
+
+        Args:
+            soup: BeautifulSoup object containing HTML
+        """
+        code_macros = soup.find_all("ac:structured-macro", attrs={"ac:name": "code"})
+
+        for macro_element in code_macros:
+            # Extract language from parameters
+            language = ""
+            lang_param = macro_element.find(
+                "ac:parameter", attrs={"ac:name": "language"}
+            )
+            if lang_param:
+                language = lang_param.get_text(strip=True)
+
+            # Extract code content from plain-text-body or rich-text-body
+            code_content = ""
+            plain_text_body = macro_element.find("ac:plain-text-body")
+            if plain_text_body:
+                code_content = plain_text_body.get_text()
+            else:
+                # Fallback to rich-text-body if plain-text-body not found
+                rich_text_body = macro_element.find("ac:rich-text-body")
+                if rich_text_body:
+                    code_content = rich_text_body.get_text()
+
+            # Create new pre/code elements
+            pre_tag = soup.new_tag("pre")
+            if language:
+                code_tag = soup.new_tag("code", attrs={"class": f"language-{language}"})
+            else:
+                code_tag = soup.new_tag("code")
+
+            code_tag.string = code_content
+            pre_tag.append(code_tag)
+
+            # Replace the macro with the new pre/code structure
+            macro_element.replace_with(pre_tag)
 
     def _process_user_profile_macros_in_soup(
         self, soup: BeautifulSoup, confluence_client: ConfluenceClient | None = None

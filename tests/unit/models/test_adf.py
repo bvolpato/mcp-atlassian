@@ -430,6 +430,172 @@ class TestAdfToText:
         result = adf_to_text(nodes)
         assert result == "```\nfirst\nsecond\n```\n normal text \n`third`"
 
+    def test_code_with_hardbreak_between(self):
+        """Test code nodes separated by hardBreak become a single code block."""
+        nodes = [
+            {
+                "type": "text",
+                "text": "SELECT * FROM users",
+                "marks": [{"type": "code"}],
+            },
+            {"type": "hardBreak"},
+            {"type": "text", "text": "WHERE id = 1", "marks": [{"type": "code"}]},
+        ]
+        result = adf_to_text(nodes)
+        assert result == "```\nSELECT * FROM users\n\nWHERE id = 1\n```"
+
+    def test_sql_query_multiline_code(self):
+        """Test realistic SQL query with multiple lines and hardBreaks."""
+        node = {
+            "type": "paragraph",
+            "content": [
+                {"type": "text", "text": "SELECT", "marks": [{"type": "code"}]},
+                {"type": "hardBreak"},
+                {"type": "text", "text": "  id,", "marks": [{"type": "code"}]},
+                {"type": "hardBreak"},
+                {"type": "text", "text": "  name,", "marks": [{"type": "code"}]},
+                {"type": "hardBreak"},
+                {"type": "text", "text": "  email", "marks": [{"type": "code"}]},
+                {"type": "hardBreak"},
+                {"type": "text", "text": "FROM users", "marks": [{"type": "code"}]},
+                {"type": "hardBreak"},
+                {
+                    "type": "text",
+                    "text": "WHERE active = true",
+                    "marks": [{"type": "code"}],
+                },
+            ],
+        }
+        result = adf_to_text(node)
+        expected = "```\nSELECT\n\n  id,\n\n  name,\n\n  email\n\nFROM users\n\nWHERE active = true\n```"
+        assert result == expected
+
+    def test_hardbreak_not_in_code_context(self):
+        """Test hardBreak outside of code context still works as newline."""
+        nodes = [
+            {"type": "text", "text": "Line 1"},
+            {"type": "hardBreak"},
+            {"type": "text", "text": "Line 2"},
+        ]
+        result = adf_to_text(nodes)
+        assert result == "Line 1\n\n\nLine 2"
+
+    def test_consecutive_code_paragraphs_become_code_block(self):
+        """Test multiple paragraphs with only code-marked text become a single code block."""
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "line1", "marks": [{"type": "code"}]}
+                    ],
+                },
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "line2", "marks": [{"type": "code"}]}
+                    ],
+                },
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "line3", "marks": [{"type": "code"}]}
+                    ],
+                },
+            ],
+        }
+        result = adf_to_text(doc)
+        assert result == "```\nline1\nline2\nline3\n```"
+
+    def test_sql_query_across_paragraphs(self):
+        """Test realistic SQL query split across multiple paragraphs."""
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "SELECT *",
+                            "marks": [{"type": "code"}],
+                        }
+                    ],
+                },
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "FROM users",
+                            "marks": [{"type": "code"}],
+                        }
+                    ],
+                },
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "WHERE active = true",
+                            "marks": [{"type": "code"}],
+                        }
+                    ],
+                },
+            ],
+        }
+        result = adf_to_text(doc)
+        assert result == "```\nSELECT *\nFROM users\nWHERE active = true\n```"
+
+    def test_code_paragraphs_with_normal_text_between(self):
+        """Test code paragraphs separated by normal text create separate blocks."""
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "code1", "marks": [{"type": "code"}]}
+                    ],
+                },
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": "normal text"}],
+                },
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "code2", "marks": [{"type": "code"}]}
+                    ],
+                },
+            ],
+        }
+        result = adf_to_text(doc)
+        assert result == "`code1`\nnormal text\n`code2`"
+
+    def test_mixed_paragraph_not_treated_as_code_only(self):
+        """Test paragraph with both code and non-code text is not treated as code-only."""
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "Run "},
+                        {
+                            "type": "text",
+                            "text": "npm install",
+                            "marks": [{"type": "code"}],
+                        },
+                        {"type": "text", "text": " to install."},
+                    ],
+                },
+            ],
+        }
+        result = adf_to_text(doc)
+        assert result == "Run \n`npm install`\n to install."
+
     def test_text_without_marks(self):
         """Test text node without marks returns plain text."""
         node = {"type": "text", "text": "plain text"}
